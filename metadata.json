@@ -1,0 +1,7 @@
+{
+  "name": "AI Thief Recognition System",
+  "description": "A real-time face recognition system for supermarkets and vendors to detect known thieves using live camera feeds, providing instant alerts and logging.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
