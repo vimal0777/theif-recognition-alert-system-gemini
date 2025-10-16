@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/Dialog';
 import { Button } from './ui/Button';
@@ -27,6 +28,32 @@ const AddFaceDialog: React.FC<AddFaceDialogProps> = ({ open, onClose, onAddFace 
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
+    useEffect(() => {
+        // Cleanup function to revoke blob URL
+        return () => {
+            if (imagePreview) {
+                URL.revokeObjectURL(imagePreview);
+            }
+        };
+    }, [imagePreview]);
+    
+    const resetForm = () => {
+        setName('');
+        setTag('watchlist');
+        setNotes('');
+        setImageFile(null);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+        setImagePreview(null);
+    };
+
+    const handleClose = () => {
+        if (loading) return;
+        resetForm();
+        onClose();
+    };
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0] || null;
         setImageFile(file);
@@ -39,26 +66,17 @@ const AddFaceDialog: React.FC<AddFaceDialogProps> = ({ open, onClose, onAddFace 
             setImagePreview(null);
         }
     };
-    
-    // Clean up blob URL on unmount
-    useEffect(() => {
-        return () => {
-            if (imagePreview) {
-                URL.revokeObjectURL(imagePreview);
-            }
-        };
-    }, [imagePreview]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name || !imageFile) {
-            alert('Name and an image file are required.');
+            alert('Name and image are required.');
             return;
         }
         setLoading(true);
         try {
             await onAddFace({ name, tag, notes, imageFile });
-            onClose(); // Close dialog on success
+            handleClose();
         } catch (error) {
             console.error("Failed to add face:", error);
             // Error is alerted to the user in the App component's handler
@@ -68,11 +86,11 @@ const AddFaceDialog: React.FC<AddFaceDialogProps> = ({ open, onClose, onAddFace 
     };
 
     return (
-        <Dialog open={open} onClose={onClose}>
+        <Dialog open={open} onClose={handleClose}>
             <DialogHeader>
                 <DialogTitle>Add New Person</DialogTitle>
                 <DialogDescription>
-                    Enter the details and upload a clear photo for the new person.
+                    Add a new individual to the face gallery. Fill in their details below.
                 </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit}>
@@ -100,12 +118,12 @@ const AddFaceDialog: React.FC<AddFaceDialogProps> = ({ open, onClose, onAddFace 
                     </div>
                     <div className="grid gap-2">
                         <Label htmlFor="notes">Notes</Label>
-                        <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+                        <Textarea id="notes" placeholder="Any relevant notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
                     </div>
                 </DialogContent>
                 <DialogFooter>
-                    <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
-                    <Button type="submit" disabled={loading || !imageFile}>
+                    <Button type="button" variant="ghost" onClick={handleClose} disabled={loading}>Cancel</Button>
+                    <Button type="submit" disabled={!name || !imageFile || loading}>
                         {loading ? 'Adding...' : 'Add Person'}
                     </Button>
                 </DialogFooter>

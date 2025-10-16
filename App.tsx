@@ -1,14 +1,17 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
-import './index.css';
 import Layout from './components/layout/Layout';
 import Dashboard from './components/Dashboard';
 import FaceGallery from './components/FaceGallery';
+import DetectionHistory from './components/DetectionHistory';
+import UnknownFaces from './components/UnknownFaces';
 import AlertNotification from './components/AlertNotification';
 import type { Page, Theme, User, KnownFace, Detection, AlertData } from './types';
-import { CAMERA, KNOWN_FACES, RECENT_DETECTIONS } from './constants';
-import { loadModelsAndDescriptors, extractFaceDescriptor } from './lib/faceApi';
+import { KNOWN_FACES as initialFaces, RECENT_DETECTIONS as initialDetections, CAMERA } from './constants';
+import * as faceApi from './lib/faceApi';
 
-// Define the shape of the data for adding a new face
+// These types are used by child components, but the data is managed in App.tsx
+// It's good practice to define them where the handler functions are.
 interface AddFaceData {
     name: string;
     tag: 'watchlist' | 'banned' | 'vip';
@@ -16,7 +19,6 @@ interface AddFaceData {
     imageFile: File;
 }
 
-// Define the shape of the data for updating a face
 interface UpdateFaceData {
     name: string;
     tag: 'watchlist' | 'banned' | 'vip';
@@ -24,157 +26,126 @@ interface UpdateFaceData {
     imageFile?: File;
 }
 
-
 const App: React.FC = () => {
-    // App State
-    const [user] = useState<User>({ id: 1, username: 'Admin', role: 'admin' });
+    const [page, setPage] = useState<Page>('Dashboard');
     const [theme, setTheme] = useState<Theme>('dark');
-    const [currentPage, setPage] = useState<Page>('Dashboard');
-    const [knownFaces, setKnownFaces] = useState<KnownFace[]>([]);
-    const [detections, setDetections] = useState<Detection[]>(RECENT_DETECTIONS);
-    const [alertData, setAlertData] = useState<AlertData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [user] = useState<User>({ id: 1, username: 'Admin', role: 'admin' });
+    const [knownFaces, setKnownFaces] = useState<KnownFace[]>(initialFaces);
+    const [detections, setDetections] = useState<Detection[]>(initialDetections);
+    const [alert, setAlert] = useState<AlertData | null>(null);
+    const [modelsLoaded, setModelsLoaded] = useState(false);
 
-    // Initialize models and face descriptors
+    // Load face-api models on component mount
     useEffect(() => {
-        const initialize = async () => {
-            try {
-                setLoading(true);
-                setError(null);
-                const facesWithDescriptors = await loadModelsAndDescriptors(KNOWN_FACES);
-                setKnownFaces(facesWithDescriptors);
-            } catch (err: any) {
-                console.error("Initialization failed:", err);
-                setError(err.message || "An unexpected error occurred during initialization.");
-            } finally {
-                setLoading(false);
+        const load = async () => {
+            await faceApi.loadModels();
+            setModelsLoaded(true);
+        };
+        load();
+    }, []);
+    
+    // Simulate new detections periodically to make the app feel alive
+    useEffect(() => {
+        if (!modelsLoaded || knownFaces.length === 0) return;
+
+        const interval = setInterval(() => {
+            const randomFace = knownFaces[Math.floor(Math.random() * knownFaces.length)];
+            const newDetection: Detection = {
+                id: Date.now(),
+                face: randomFace,
+                camera: CAMERA,
+                snapshotUrl: `https://picsum.photos/seed/${Date.now()}/200/200`,
+                confidence: 0.85 + Math.random() * 0.14, // High confidence
+                timestamp: new Date(),
+            };
+            
+            setDetections(prev => [newDetection, ...prev]);
+
+            // Trigger an alert for banned or watchlist individuals
+            if (newDetection.face.tag === 'banned' || newDetection.face.tag === 'watchlist') {
+                setAlert({ face: newDetection.face, confidence: newDetection.confidence });
             }
-        };
-        initialize();
-    }, []);
 
-    // Handlers
-    const handleAlert = useCallback((data: AlertData) => {
-        console.log("ALERT:", data);
-        setAlertData(data);
-        // Add to recent detections
-        const newDetection: Detection = {
-            id: Date.now(),
-            face: data.face,
-            camera: CAMERA,
-            snapshotUrl: data.face.imageUrls[0], // Use gallery image as placeholder
-            confidence: data.confidence,
-            timestamp: new Date(),
-        };
-        setDetections(prev => [newDetection, ...prev].slice(0, 5)); // Keep last 5
-    }, []);
+        }, 20000); // New detection every 20 seconds
 
-    const handleAddFace = async (data: AddFaceData) => {
-        console.log("Adding new face:", data.name);
+        return () => clearInterval(interval);
+    }, [modelsLoaded, knownFaces]);
+
+    const handleAddFace = useCallback(async (data: AddFaceData) => {
         try {
-            const descriptor = await extractFaceDescriptor(data.imageFile);
-            if (!descriptor) {
-                throw new Error("Could not detect a face in the provided image. Please use a clear, front-facing photo.");
-            }
-            const imageUrl = URL.createObjectURL(data.imageFile);
-            const faceToAdd: KnownFace = {
+            console.log("Adding face:", data.name);
+            const descriptor = await faceApi.createDescriptorFromFile(data.imageFile);
+            const newFace: KnownFace = {
                 id: Date.now(),
                 name: data.name,
                 tag: data.tag,
                 notes: data.notes,
-                imageUrls: [imageUrl],
+                imageUrls: [URL.createObjectURL(data.imageFile)], // Display uploaded image immediately
                 descriptors: [descriptor],
+                imageFile: data.imageFile,
             };
-            setKnownFaces(prev => [...prev, faceToAdd]);
-        } catch (error: any) {
-            console.error("Failed to add face:", error);
-            alert(`Error: ${error.message}`);
-            throw error; // Re-throw to keep dialog loading state correct
+            setKnownFaces(prev => [...prev, newFace]);
+        } catch (err) {
+            console.error(err);
+            alert("Error adding face. See console for details.");
+            throw err; // Re-throw to be caught by dialog
         }
-    };
+    }, []);
 
-    const handleUpdateFace = async (faceId: number, data: UpdateFaceData) => {
-        console.log("Updating face:", data.name);
+    const handleUpdateFace = useCallback(async (faceId: number, data: UpdateFaceData) => {
         try {
-            const originalFace = knownFaces.find(f => f.id === faceId);
-            if (!originalFace) throw new Error("Face not found.");
-
-            let newImageUrl = originalFace.imageUrls[0];
-            let newDescriptors = originalFace.descriptors;
-
-            // If a new image file is provided, process it
-            if (data.imageFile) {
-                const descriptor = await extractFaceDescriptor(data.imageFile);
-                if (!descriptor) {
-                    throw new Error("Could not detect a face in the new image. Please use a clear, front-facing photo.");
-                }
-                // Revoke old blob URL to prevent memory leaks, if it is one
-                if (originalFace.imageUrls[0].startsWith('blob:')) {
-                    URL.revokeObjectURL(originalFace.imageUrls[0]);
-                }
-                newImageUrl = URL.createObjectURL(data.imageFile);
-                newDescriptors = [descriptor];
-            }
+            console.log("Updating face:", data.name);
             
-            const updatedFace: KnownFace = {
-                ...originalFace,
-                name: data.name,
-                tag: data.tag,
-                notes: data.notes,
-                imageUrls: [newImageUrl],
-                descriptors: newDescriptors,
-            };
+             const updatedFaces = await Promise.all(knownFaces.map(async face => {
+                if (face.id === faceId) {
+                    let newDescriptor = face.descriptors?.[0];
+                    let newImageUrl = face.imageUrls[0];
+                    if (data.imageFile) {
+                        newDescriptor = await faceApi.createDescriptorFromFile(data.imageFile);
+                        newImageUrl = URL.createObjectURL(data.imageFile);
+                    }
+                    return {
+                        ...face,
+                        name: data.name,
+                        tag: data.tag,
+                        notes: data.notes,
+                        imageUrls: [newImageUrl],
+                        descriptors: newDescriptor ? [newDescriptor] : [],
+                    };
+                }
+                return face;
+             }));
+             setKnownFaces(updatedFaces);
 
-            setKnownFaces(prev => prev.map(f => f.id === faceId ? updatedFace : f));
-        } catch (error: any) {
-            console.error("Failed to update face:", error);
-            alert(`Error: ${error.message}`);
-            throw error; // Re-throw to keep dialog loading state correct
+        } catch (err) {
+            console.error(err);
+            alert("Error updating face. See console for details.");
+            throw err; // Re-throw to be caught by dialog
         }
-    };
+    }, [knownFaces]);
 
-    const handleDeleteFace = (faceId: number) => {
-        if (window.confirm("Are you sure you want to delete this person from the gallery?")) {
-            console.log("Deleting face:", faceId);
-            const faceToDelete = knownFaces.find(f => f.id === faceId);
-            // Clean up blob URL if it exists
-            if (faceToDelete && faceToDelete.imageUrls[0].startsWith('blob:')) {
-                URL.revokeObjectURL(faceToDelete.imageUrls[0]);
-            }
-            setKnownFaces(prev => prev.filter(f => f.id !== faceId));
+    const handleDeleteFace = useCallback((faceId: number) => {
+        if (window.confirm("Are you sure you want to delete this person?")) {
+            setKnownFaces(prev => prev.filter(face => face.id !== faceId));
         }
-    };
+    }, []);
 
     const renderPage = () => {
-        switch (currentPage) {
+        switch (page) {
             case 'Dashboard':
-                return <Dashboard camera={CAMERA} detections={detections} knownFaces={knownFaces} onAlert={handleAlert} />;
+                return <Dashboard detections={detections} knownFaces={knownFaces} camera={CAMERA} />;
             case 'Face Gallery':
-                return <FaceGallery knownFaces={knownFaces} onAddFace={handleAddFace} onUpdateFace={handleUpdateFace} onDeleteFace={handleDeleteFace} />;
+                return <FaceGallery knownFaces={knownFaces} onAddFace={handleAddFace} onUpdateFace={handleUpdateFace} onDeleteFace={handleDeleteFace}/>;
             case 'Detection History':
+                return <DetectionHistory detections={detections} />;
             case 'Unknown Faces':
+                return <UnknownFaces />;
             case 'Settings':
-                return <div className="text-center p-8 bg-card rounded-lg">
-                    <h2 className="text-2xl font-bold">{currentPage}</h2>
-                    <p className="text-muted-foreground mt-2">This feature is not yet implemented.</p>
-                </div>;
+                return <div className="text-center p-8"><h2 className="text-2xl">Settings</h2><p className="text-muted-foreground">This page is under construction.</p></div>;
             default:
-                return null;
+                return <Dashboard detections={detections} knownFaces={knownFaces} camera={CAMERA}/>;
         }
     };
-
-    const onLogout = () => {
-        alert("Logout functionality is not implemented in this demo.");
-    };
-    
-    if (loading) {
-        return <div className="flex items-center justify-center h-screen bg-background text-foreground"><p>Loading models and preparing system...</p></div>;
-    }
-    
-    if (error) {
-        return <div className="flex items-center justify-center h-screen bg-background text-destructive"><p>Error: {error}</p></div>;
-    }
 
     return (
         <>
@@ -182,18 +153,13 @@ const App: React.FC = () => {
                 user={user}
                 theme={theme}
                 setTheme={setTheme}
-                onLogout={onLogout}
-                currentPage={currentPage}
+                onLogout={() => alert('Logout clicked!')}
+                currentPage={page}
                 setPage={setPage}
             >
                 {renderPage()}
             </Layout>
-            {alertData && (
-                <AlertNotification
-                    alert={alertData}
-                    onClose={() => setAlertData(null)}
-                />
-            )}
+            {alert && <AlertNotification alert={alert} onClose={() => setAlert(null)} />}
         </>
     );
 };
