@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 import type { AlertData } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/Card';
@@ -8,18 +7,19 @@ import { ALERT_SOUND_URL } from '../constants';
 interface AlertNotificationProps {
   alert: AlertData;
   onClose: () => void;
+  isAudioUnlocked: boolean;
 }
 
-const AlertNotification: React.FC<AlertNotificationProps> = ({ alert, onClose }) => {
+const AlertNotification: React.FC<AlertNotificationProps> = ({ alert, onClose, isAudioUnlocked }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.play().catch(error => console.error("Audio play failed:", error));
+    if (isAudioUnlocked && audioRef.current) {
+      audioRef.current.play().catch(error => console.error("Audio play failed despite interaction:", error));
     }
     const timer = setTimeout(onClose, 8000); // Auto-close after 8 seconds
     return () => clearTimeout(timer);
-  }, [onClose]);
+  }, [onClose, isAudioUnlocked]);
 
   return (
     <div className="fixed top-5 right-5 z-50 animate-pulse">

@@ -1,58 +1,66 @@
 
-import type { KnownFace } from '../types';
+import type { KnownFace, Detection } from '../types';
+import { KNOWN_FACES, RECENT_DETECTIONS, CAMERA } from '../constants';
 
-/**
- * Mocks the loading of face recognition models.
- * In a real application, this would load weights from face-api.js or a similar library.
- */
-export const loadModels = async (): Promise<void> => {
-  console.log('Simulating face model loading...');
-  // Simulate a delay for loading models from a remote source
-  await new Promise(resolve => setTimeout(resolve, 500));
-  console.log('Face models loaded successfully.');
+// Simulate a delay for API calls
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+let faces: KnownFace[] = [...KNOWN_FACES];
+let detections: Detection[] = [...RECENT_DETECTIONS];
+let nextFaceId = faces.length + 1;
+let nextDetectionId = detections.length + 1;
+
+export const getKnownFaces = async (): Promise<KnownFace[]> => {
+    await delay(500);
+    return [...faces];
 };
 
-/**
- * Mocks the creation of a face descriptor from an image file.
- * @param imageFile The image file to process.
- * @returns A promise that resolves to a mock Float32Array descriptor.
- */
-export const createDescriptorFromFile = async (imageFile: File): Promise<Float32Array> => {
-  console.log(`Simulating descriptor generation for ${imageFile.name}...`);
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  // In a real implementation, this would use a face recognition library
-  // to detect a face in the image and compute its 128-dimensional descriptor.
-  // Here, we return a randomized array to mimic the data structure.
-  const mockDescriptor = new Float32Array(128);
-  for (let i = 0; i < mockDescriptor.length; i++) {
-    mockDescriptor[i] = Math.random();
-  }
-  
-  console.log('Descriptor generated.');
-  return mockDescriptor;
+export const addKnownFace = async (faceData: Omit<KnownFace, 'id'>): Promise<KnownFace> => {
+    await delay(700);
+    const newFace: KnownFace = { ...faceData, id: nextFaceId++, imageUrls: faceData.imageUrls.length > 0 ? faceData.imageUrls : [`https://picsum.photos/seed/${nextFaceId}/400/400`] };
+    faces.push(newFace);
+    return newFace;
 };
 
-/**
- * Mocks finding the best match for a given descriptor from a list of known faces.
- * @param queryDescriptor The descriptor of the face to identify.
- * @param knownFaces An array of known faces with their descriptors.
- * @returns A mock match result or null if no faces are known.
- */
-export const findBestMatch = (queryDescriptor: Float32Array, knownFaces: KnownFace[]) => {
-  if (knownFaces.length === 0) {
-    return null;
-  }
+export const updateKnownFace = async (faceData: KnownFace): Promise<KnownFace> => {
+    await delay(700);
+    const index = faces.findIndex(f => f.id === faceData.id);
+    if (index === -1) throw new Error('Face not found');
+    faces[index] = faceData;
+    return faceData;
+};
 
-  // This is a highly simplified mock. A real implementation would calculate
-  // the Euclidean distance between the queryDescriptor and each known descriptor
-  // and return the one with the smallest distance below a certain threshold.
+export const deleteKnownFace = async (faceId: number): Promise<{ id: number }> => {
+    await delay(700);
+    const initialLength = faces.length;
+    faces = faces.filter(f => f.id !== faceId);
+    if (faces.length === initialLength) throw new Error('Face not found');
+    return { id: faceId };
+};
 
-  // For this simulation, we'll just randomly "match" one of the known faces.
-  const randomMatch = knownFaces[Math.floor(Math.random() * knownFaces.length)];
-  
-  return {
-    label: randomMatch.name,
-    distance: Math.random() * 0.5, // Simulate a good match distance (typically < 0.6)
-  };
+// This function simulates a new detection from a live feed
+export const simulateDetection = (): Detection | null => {
+    // 10% chance of a new detection on each call
+    if (Math.random() > 0.1 || faces.length === 0) {
+        return null;
+    }
+
+    const knownFace = faces[Math.floor(Math.random() * faces.length)];
+    const confidence = 0.85 + Math.random() * 0.14; // High confidence for simulation
+
+    const newDetection: Detection = {
+        id: nextDetectionId++,
+        face: knownFace,
+        camera: CAMERA,
+        snapshotUrl: `https://picsum.photos/seed/detection${nextDetectionId}/200/200`,
+        confidence: parseFloat(confidence.toFixed(2)),
+        timestamp: new Date(),
+    };
+
+    detections.unshift(newDetection);
+    if (detections.length > 50) {
+        detections.pop();
+    }
+
+    return newDetection;
 };

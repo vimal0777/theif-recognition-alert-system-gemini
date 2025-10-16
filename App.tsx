@@ -6,144 +6,111 @@ import FaceGallery from './components/FaceGallery';
 import DetectionHistory from './components/DetectionHistory';
 import UnknownFaces from './components/UnknownFaces';
 import AlertNotification from './components/AlertNotification';
-import type { Page, Theme, User, KnownFace, Detection, AlertData } from './types';
-import { KNOWN_FACES as initialFaces, RECENT_DETECTIONS as initialDetections, CAMERA } from './constants';
+import AddFaceDialog from './components/AddFaceDialog';
+import EditFaceDialog from './components/EditFaceDialog';
+
+import type { Page, Theme, User, KnownFace, Detection, AlertData, Camera } from './types';
+import { KNOWN_FACES, RECENT_DETECTIONS, CAMERA } from './constants';
 import * as faceApi from './lib/faceApi';
 
-// These types are used by child components, but the data is managed in App.tsx
-// It's good practice to define them where the handler functions are.
-interface AddFaceData {
-    name: string;
-    tag: 'watchlist' | 'banned' | 'vip';
-    notes: string;
-    imageFile: File;
-}
-
-interface UpdateFaceData {
-    name: string;
-    tag: 'watchlist' | 'banned' | 'vip';
-    notes: string;
-    imageFile?: File;
-}
-
 const App: React.FC = () => {
-    const [page, setPage] = useState<Page>('Dashboard');
+    // App State
     const [theme, setTheme] = useState<Theme>('dark');
-    const [user] = useState<User>({ id: 1, username: 'Admin', role: 'admin' });
-    const [knownFaces, setKnownFaces] = useState<KnownFace[]>(initialFaces);
-    const [detections, setDetections] = useState<Detection[]>(initialDetections);
-    const [alert, setAlert] = useState<AlertData | null>(null);
-    const [modelsLoaded, setModelsLoaded] = useState(false);
-
-    // Load face-api models on component mount
-    useEffect(() => {
-        const load = async () => {
-            await faceApi.loadModels();
-            setModelsLoaded(true);
-        };
-        load();
-    }, []);
+    const [currentPage, setPage] = useState<Page>('Dashboard');
+    const [user] = useState<User>({ username: 'Operator', role: 'operator' });
     
-    // Simulate new detections periodically to make the app feel alive
+    // Data State
+    const [knownFaces, setKnownFaces] = useState<KnownFace[]>(KNOWN_FACES);
+    const [detections, setDetections] = useState<Detection[]>(RECENT_DETECTIONS);
+    const [camera] = useState<Camera>(CAMERA);
+    
+    // UI State
+    const [alert, setAlert] = useState<AlertData | null>(null);
+    const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
+    const [isAddFaceDialogOpen, setAddFaceDialogOpen] = useState(false);
+    const [isEditFaceDialogOpen, setEditFaceDialogOpen] = useState(false);
+    const [faceToEdit, setFaceToEdit] = useState<KnownFace | null>(null);
+
+    // Effect for theme
     useEffect(() => {
-        if (!modelsLoaded || knownFaces.length === 0) return;
-
-        const interval = setInterval(() => {
-            const randomFace = knownFaces[Math.floor(Math.random() * knownFaces.length)];
-            const newDetection: Detection = {
-                id: Date.now(),
-                face: randomFace,
-                camera: CAMERA,
-                snapshotUrl: `https://picsum.photos/seed/${Date.now()}/200/200`,
-                confidence: 0.85 + Math.random() * 0.14, // High confidence
-                timestamp: new Date(),
-            };
-            
+        const root = window.document.documentElement;
+        root.classList.remove('light', 'dark');
+        root.classList.add(theme);
+    }, [theme]);
+    
+    // Unlock audio context on first user interaction
+    const unlockAudio = useCallback(() => {
+        if (!isAudioUnlocked) {
+            setIsAudioUnlocked(true);
+        }
+    }, [isAudioUnlocked]);
+    
+    useEffect(() => {
+        window.addEventListener('click', unlockAudio);
+        return () => {
+            window.removeEventListener('click', unlockAudio);
+        };
+    }, [unlockAudio]);
+    
+    // Data Fetching & Simulation
+    const handleNewDetection = useCallback(() => {
+        const newDetection = faceApi.simulateDetection();
+        if (newDetection) {
             setDetections(prev => [newDetection, ...prev]);
-
-            // Trigger an alert for banned or watchlist individuals
-            if (newDetection.face.tag === 'banned' || newDetection.face.tag === 'watchlist') {
-                setAlert({ face: newDetection.face, confidence: newDetection.confidence });
-            }
-
-        }, 20000); // New detection every 20 seconds
-
-        return () => clearInterval(interval);
-    }, [modelsLoaded, knownFaces]);
-
-    const handleAddFace = useCallback(async (data: AddFaceData) => {
-        try {
-            console.log("Adding face:", data.name);
-            const descriptor = await faceApi.createDescriptorFromFile(data.imageFile);
-            const newFace: KnownFace = {
-                id: Date.now(),
-                name: data.name,
-                tag: data.tag,
-                notes: data.notes,
-                imageUrls: [URL.createObjectURL(data.imageFile)], // Display uploaded image immediately
-                descriptors: [descriptor],
-                imageFile: data.imageFile,
-            };
-            setKnownFaces(prev => [...prev, newFace]);
-        } catch (err) {
-            console.error(err);
-            alert("Error adding face. See console for details.");
-            throw err; // Re-throw to be caught by dialog
-        }
-    }, []);
-
-    const handleUpdateFace = useCallback(async (faceId: number, data: UpdateFaceData) => {
-        try {
-            console.log("Updating face:", data.name);
             
-             const updatedFaces = await Promise.all(knownFaces.map(async face => {
-                if (face.id === faceId) {
-                    let newDescriptor = face.descriptors?.[0];
-                    let newImageUrl = face.imageUrls[0];
-                    if (data.imageFile) {
-                        newDescriptor = await faceApi.createDescriptorFromFile(data.imageFile);
-                        newImageUrl = URL.createObjectURL(data.imageFile);
-                    }
-                    return {
-                        ...face,
-                        name: data.name,
-                        tag: data.tag,
-                        notes: data.notes,
-                        imageUrls: [newImageUrl],
-                        descriptors: newDescriptor ? [newDescriptor] : [],
-                    };
-                }
-                return face;
-             }));
-             setKnownFaces(updatedFaces);
-
-        } catch (err) {
-            console.error(err);
-            alert("Error updating face. See console for details.");
-            throw err; // Re-throw to be caught by dialog
-        }
-    }, [knownFaces]);
-
-    const handleDeleteFace = useCallback((faceId: number) => {
-        if (window.confirm("Are you sure you want to delete this person?")) {
-            setKnownFaces(prev => prev.filter(face => face.id !== faceId));
+            if (newDetection.confidence > 0.9 && (newDetection.face.tag === 'banned' || newDetection.face.tag === 'watchlist')) {
+                setAlert(newDetection);
+            }
         }
     }, []);
+
+    // CRUD operations for faces
+    const handleAddFace = async (newFaceData: Omit<KnownFace, 'id'>) => {
+        const addedFace = await faceApi.addKnownFace(newFaceData);
+        setKnownFaces(prev => [...prev, addedFace]);
+    };
+
+    const handleUpdateFace = async (updatedFaceData: KnownFace) => {
+        const updatedFace = await faceApi.updateKnownFace(updatedFaceData);
+        setKnownFaces(prev => prev.map(f => f.id === updatedFace.id ? updatedFace : f));
+    };
+
+    const handleDeleteFace = async (faceId: number) => {
+        if (window.confirm("Are you sure you want to delete this person from the gallery?")) {
+            await faceApi.deleteKnownFace(faceId);
+            setKnownFaces(prev => prev.filter(f => f.id !== faceId));
+        }
+    };
+
+    const openEditDialog = (face: KnownFace) => {
+        setFaceToEdit(face);
+        setEditFaceDialogOpen(true);
+    };
 
     const renderPage = () => {
-        switch (page) {
+        switch (currentPage) {
             case 'Dashboard':
-                return <Dashboard detections={detections} knownFaces={knownFaces} camera={CAMERA} />;
+                return <Dashboard 
+                    recentDetections={detections} 
+                    knownFaces={knownFaces}
+                    camera={camera}
+                    onNewDetection={handleNewDetection}
+                />;
             case 'Face Gallery':
-                return <FaceGallery knownFaces={knownFaces} onAddFace={handleAddFace} onUpdateFace={handleUpdateFace} onDeleteFace={handleDeleteFace}/>;
+                return <FaceGallery 
+                    faces={knownFaces}
+                    onAdd={() => setAddFaceDialogOpen(true)}
+                    onEdit={openEditDialog}
+                    onDelete={handleDeleteFace}
+                />;
             case 'Detection History':
                 return <DetectionHistory detections={detections} />;
             case 'Unknown Faces':
                 return <UnknownFaces />;
             case 'Settings':
-                return <div className="text-center p-8"><h2 className="text-2xl">Settings</h2><p className="text-muted-foreground">This page is under construction.</p></div>;
+                 return <div className="text-center p-8 bg-card rounded-lg">Settings page is under construction.</div>;
             default:
-                return <Dashboard detections={detections} knownFaces={knownFaces} camera={CAMERA}/>;
+                return null;
         }
     };
 
@@ -153,13 +120,36 @@ const App: React.FC = () => {
                 user={user}
                 theme={theme}
                 setTheme={setTheme}
-                onLogout={() => alert('Logout clicked!')}
-                currentPage={page}
+                onLogout={() => alert('Logout functionality not implemented.')}
+                currentPage={currentPage}
                 setPage={setPage}
             >
                 {renderPage()}
             </Layout>
-            {alert && <AlertNotification alert={alert} onClose={() => setAlert(null)} />}
+            
+            {alert && (
+                <AlertNotification 
+                    alert={alert} 
+                    onClose={() => setAlert(null)}
+                    isAudioUnlocked={isAudioUnlocked} 
+                />
+            )}
+
+            <AddFaceDialog
+                open={isAddFaceDialogOpen}
+                onClose={() => setAddFaceDialogOpen(false)}
+                onAddFace={handleAddFace}
+            />
+
+            <EditFaceDialog
+                open={isEditFaceDialogOpen}
+                onClose={() => {
+                    setEditFaceDialogOpen(false);
+                    setFaceToEdit(null);
+                }}
+                onUpdateFace={handleUpdateFace}
+                faceToEdit={faceToEdit}
+            />
         </>
     );
 };

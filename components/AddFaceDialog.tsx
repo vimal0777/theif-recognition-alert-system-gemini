@@ -1,133 +1,78 @@
 
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/Dialog';
+import React, { useState } from 'react';
+import type { KnownFace } from '../types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/Dialog';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Label } from './ui/Label';
 import { Select } from './ui/Select';
 import { Textarea } from './ui/Textarea';
 
-interface AddFaceData {
-    name: string;
-    tag: 'watchlist' | 'banned' | 'vip';
-    notes: string;
-    imageFile: File;
-}
-
 interface AddFaceDialogProps {
     open: boolean;
     onClose: () => void;
-    onAddFace: (data: AddFaceData) => Promise<void>;
+    onAddFace: (newFace: Omit<KnownFace, 'id'>) => void;
 }
 
 const AddFaceDialog: React.FC<AddFaceDialogProps> = ({ open, onClose, onAddFace }) => {
     const [name, setName] = useState('');
-    const [tag, setTag] = useState<'watchlist' | 'banned' | 'vip'>('watchlist');
+    const [tag, setTag] = useState<'banned' | 'watchlist' | 'vip'>('watchlist');
     const [notes, setNotes] = useState('');
-    const [imageFile, setImageFile] = useState<File | null>(null);
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [imageUrl, setImageUrl] = useState('');
 
-    useEffect(() => {
-        // Cleanup function to revoke blob URL
-        return () => {
-            if (imagePreview) {
-                URL.revokeObjectURL(imagePreview);
-            }
-        };
-    }, [imagePreview]);
-    
-    const resetForm = () => {
+    const handleSubmit = () => {
+        if (!name.trim()) {
+            alert('Name is required.');
+            return;
+        }
+        onAddFace({
+            name,
+            tag,
+            notes,
+            imageUrls: [imageUrl.trim() || `https://picsum.photos/seed/${name.replace(/\s+/g, '')}/400/400`],
+        });
+        onClose();
+        // Reset form
         setName('');
         setTag('watchlist');
         setNotes('');
-        setImageFile(null);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
-        setImagePreview(null);
-    };
-
-    const handleClose = () => {
-        if (loading) return;
-        resetForm();
-        onClose();
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0] || null;
-        setImageFile(file);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
-        if (file) {
-            setImagePreview(URL.createObjectURL(file));
-        } else {
-            setImagePreview(null);
-        }
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!name || !imageFile) {
-            alert('Name and image are required.');
-            return;
-        }
-        setLoading(true);
-        try {
-            await onAddFace({ name, tag, notes, imageFile });
-            handleClose();
-        } catch (error) {
-            console.error("Failed to add face:", error);
-            // Error is alerted to the user in the App component's handler
-        } finally {
-            setLoading(false);
-        }
+        setImageUrl('');
     };
 
     return (
-        <Dialog open={open} onClose={handleClose}>
+        <Dialog open={open} onClose={onClose}>
             <DialogHeader>
-                <DialogTitle>Add New Person</DialogTitle>
+                <DialogTitle>Add New Face to Gallery</DialogTitle>
                 <DialogDescription>
-                    Add a new individual to the face gallery. Fill in their details below.
+                    Enter the details for the new individual. This will add them to the system's database.
                 </DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleSubmit}>
-                <DialogContent className="space-y-4">
-                    <div className="grid gap-2">
-                        <Label htmlFor="name">Full Name</Label>
-                        <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
-                    </div>
-                     <div className="grid gap-2">
-                        <Label htmlFor="image-file">Photo</Label>
-                        <Input id="image-file" type="file" accept="image/*" onChange={handleFileChange} required />
-                    </div>
-                    {imagePreview && (
-                        <div className="flex justify-center">
-                             <img src={imagePreview} alt="Preview" className="h-32 w-32 object-cover rounded-md border" />
-                        </div>
-                    )}
-                    <div className="grid gap-2">
-                        <Label htmlFor="tag">Tag</Label>
-                        <Select id="tag" value={tag} onChange={(e) => setTag(e.target.value as any)}>
-                            <option value="watchlist">Watchlist</option>
-                            <option value="banned">Banned</option>
-                            <option value="vip">VIP</option>
-                        </Select>
-                    </div>
-                    <div className="grid gap-2">
-                        <Label htmlFor="notes">Notes</Label>
-                        <Textarea id="notes" placeholder="Any relevant notes..." value={notes} onChange={(e) => setNotes(e.target.value)} />
-                    </div>
-                </DialogContent>
-                <DialogFooter>
-                    <Button type="button" variant="ghost" onClick={handleClose} disabled={loading}>Cancel</Button>
-                    <Button type="submit" disabled={!name || !imageFile || loading}>
-                        {loading ? 'Adding...' : 'Add Person'}
-                    </Button>
-                </DialogFooter>
-            </form>
+            <DialogContent className="space-y-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="name" className="text-right">Name</Label>
+                    <Input id="name" value={name} onChange={e => setName(e.target.value)} className="col-span-3" />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="imageUrl" className="text-right">Image URL</Label>
+                    <Input id="imageUrl" value={imageUrl} onChange={e => setImageUrl(e.target.value)} className="col-span-3" placeholder="Optional: e.g., https://picsum.photos/..." />
+                </div>
+                 <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="tag" className="text-right">Tag</Label>
+                    <Select id="tag" value={tag} onChange={e => setTag(e.target.value as any)} className="col-span-3">
+                        <option value="watchlist">Watchlist</option>
+                        <option value="banned">Banned</option>
+                        <option value="vip">VIP</option>
+                    </Select>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="notes" className="text-right">Notes</Label>
+                    <Textarea id="notes" value={notes} onChange={e => setNotes(e.target.value)} className="col-span-3" placeholder="Additional notes..." />
+                </div>
+            </DialogContent>
+            <DialogFooter>
+                <Button variant="outline" onClick={onClose}>Cancel</Button>
+                <Button onClick={handleSubmit}>Add Face</Button>
+            </DialogFooter>
         </Dialog>
     );
 };
